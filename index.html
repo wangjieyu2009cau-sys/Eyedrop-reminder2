@@ -233,16 +233,36 @@
         <div class="last-update" id="lastUpdate">最后更新：--</div>
     </div>
 
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <script>
+        // Firebase配置
+        const firebaseConfig = {
+            apiKey: "AIzaSyC0INycOgw15McsZysYUTaCl5qZ-qGXujE",
+            authDomain: "eyedrop-reminder.firebaseapp.com",
+            databaseURL: "https://eyedrop-reminder-default-rtdb.firebaseio.com",
+            projectId: "eyedrop-reminder",
+            storageBucket: "eyedrop-reminder.firebasestorage.app",
+            messagingSenderId: "1079761104680",
+            appId: "1:1079761104680:web:9b1383f330087dd581aa1d"
+        };
+        
+        // 初始化Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const dataRef = database.ref('eyedropData');
+        
+        // 本地数据缓存
+        let localData = null;
         const baseTasks = [
             { time: "08:00", medicine: "小牛血去蛋白提取物滴眼液" },
-            { time: "08:30", medicine: "环孢素滴眼液" },
+            { time: "08:30", medicine: "环孢素滴眼液（早上）" },
             { time: "09:00", medicine: "聚乙二醇滴眼液" },
-            { time: "09:30", medicine: "小牛血去蛋白提取物滴眼液" },
-            { time: "10:00", medicine: "聚乙二醇滴眼液" },
-            { time: "10:30", medicine: "环孢素滴眼液" },
-            { time: "11:00", medicine: "小牛血去蛋白提取物滴眼液" },
-            { time: "11:30", medicine: "聚乙二醇滴眼液" }
+            { time: "12:00", medicine: "小牛血去蛋白提取物滴眼液" },
+            { time: "12:30", medicine: "聚乙二醇滴眼液" },
+            { time: "20:00", medicine: "小牛血去蛋白提取物滴眼液" },
+            { time: "20:30", medicine: "聚乙二醇滴眼液" },
+            { time: "21:00", medicine: "环孢素滴眼液（晚上）" }
         ];
         
         const motivationalQuotes = [
@@ -265,12 +285,24 @@
             { id: "master", name: "眼药水大师", unlocked: false }
         ];
         
-        function loadData() {
-            const data = localStorage.getItem('eyeDropData');
-            if (data) return JSON.parse(data);
-            
-            const today = new Date().toISOString().split('T')[0];
-            return {
+        // 从Firebase加载数据
+        function loadData(callback) {
+            dataRef.once('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    localData = data;
+                    if (callback) callback(data);
+                } else {
+                    // 如果没有数据，创建初始数据
+                    createInitialData();
+                }
+            });
+        }
+        
+        // 创建初始数据
+        function createInitialData() {
+            const today = getTodayDateString();
+            const initialData = {
                 tasks: baseTasks.map((task, index) => ({
                     ...task, id: index + 1,
                     completed: false, completedAt: null,
@@ -282,11 +314,14 @@
                 lastUpdate: new Date().toISOString(),
                 startDate: today
             };
+            saveData(initialData);
         }
         
+        // 保存数据到Firebase
         function saveData(data) {
+            localData = data;
             data.lastUpdate = new Date().toISOString();
-            localStorage.setItem('eyeDropData', JSON.stringify(data));
+            dataRef.set(data);
         }
         
         function getTodayDateString() {
@@ -372,68 +407,69 @@
         }
         
         function renderTasks() {
-            const data = loadData();
-            initTodayData(data);
-            updateStats(data);
-            
-            const taskList = document.getElementById('taskList');
-            taskList.innerHTML = '';
-            
-            let completedCount = 0;
-            const now = new Date();
-            const currentTimeStr = now.toTimeString().slice(0, 5);
-            
-            data.tasks.forEach((task, index) => {
-                if (task.completed) completedCount++;
+            loadData(function(data) {
+                initTodayData(data);
+                updateStats(data);
                 
-                const taskEl = document.createElement('div');
-                taskEl.className = 'task';
-                if (task.completed) taskEl.classList.add('completed');
+                const taskList = document.getElementById('taskList');
+                taskList.innerHTML = '';
                 
-                const isCurrent = !task.completed && !task.delayed && task.time >= currentTimeStr;
-                if (isCurrent) taskEl.classList.add('current');
+                let completedCount = 0;
+                const now = new Date();
+                const currentTimeStr = now.toTimeString().slice(0, 5);
                 
-                taskEl.innerHTML = `
-                    <div class="task-header">
-                        <div class="task-time">${task.delayed ? task.newTime : task.time}</div>
-                        <div class="task-status">${task.completed ? '已完成' : (task.delayed ? '已延迟' : '待完成')}</div>
-                    </div>
-                    <div class="task-medicine">${task.medicine}</div>
-                    <div class="task-actions">
-                        <button class="btn btn-check" onclick="checkIn(${index})" ${task.completed ? 'disabled' : ''}>
-                            ${task.completed ? '✓ 已滴' : '已滴'}
-                        </button>
-                        <button class="btn btn-delay" onclick="showDelayOptions(${index})" ${task.completed || task.delayed ? 'disabled' : ''}>
-                            ${task.delayed ? '已延迟' : '延迟'}
-                        </button>
-                    </div>
-                    <div class="delay-buttons" id="delayButtons${index}" style="display: none;">
-                        <button class="delay-btn" onclick="delay(${index}, 30)">+30分钟</button>
-                        <button class="delay-btn" onclick="delay(${index}, 60)">+1小时</button>
-                        <button class="delay-btn" onclick="delay(${index}, 120)">+2小时</button>
-                    </div>
-                `;
-                taskList.appendChild(taskEl);
+                data.tasks.forEach((task, index) => {
+                    if (task.completed) completedCount++;
+                    
+                    const taskEl = document.createElement('div');
+                    taskEl.className = 'task';
+                    if (task.completed) taskEl.classList.add('completed');
+                    
+                    const isCurrent = !task.completed && !task.delayed && task.time >= currentTimeStr;
+                    if (isCurrent) taskEl.classList.add('current');
+                    
+                    taskEl.innerHTML = `
+                        <div class="task-header">
+                            <div class="task-time">${task.delayed ? task.newTime : task.time}</div>
+                            <div class="task-status">${task.completed ? '已完成' : (task.delayed ? '已延迟' : '待完成')}</div>
+                        </div>
+                        <div class="task-medicine">${task.medicine}</div>
+                        <div class="task-actions">
+                            <button class="btn btn-check" onclick="checkIn(${index})" ${task.completed ? 'disabled' : ''}>
+                                ${task.completed ? '✓ 已滴' : '已滴'}
+                            </button>
+                            <button class="btn btn-delay" onclick="showDelayOptions(${index})" ${task.completed || task.delayed ? 'disabled' : ''}>
+                                ${task.delayed ? '已延迟' : '延迟'}
+                            </button>
+                        </div>
+                        <div class="delay-buttons" id="delayButtons${index}" style="display: none;">
+                            <button class="delay-btn" onclick="delay(${index}, 30)">+30分钟</button>
+                            <button class="delay-btn" onclick="delay(${index}, 60)">+1小时</button>
+                            <button class="delay-btn" onclick="delay(${index}, 120)">+2小时</button>
+                        </div>
+                    `;
+                    taskList.appendChild(taskEl);
+                });
+                
+                const progressBar = document.getElementById('progressBar');
+                const progressText = document.getElementById('progressText');
+                const progress = (completedCount / data.tasks.length) * 100;
+                progressBar.style.width = progress + '%';
+                progressText.textContent = `${completedCount}/${data.tasks.length} 完成`;
+                
+                const today = getTodayDateString();
+                if (completedCount === data.tasks.length) data.history[today].status = 'completed';
+                else if (completedCount > 0) data.history[today].status = 'partial';
+                data.history[today].completed = completedCount;
+                saveData(data);
+                
+                renderStats(data);
+                renderAchievements(data);
+                renderMotivationalQuote();
+                renderHistory(data);
+                
+                document.getElementById('lastUpdate').textContent = `最后更新：${new Date(data.lastUpdate).toLocaleString('zh-CN')}`;
             });
-            
-            const progressBar = document.getElementById('progressBar');
-            const progressText = document.getElementById('progressText');
-            const progress = (completedCount / data.tasks.length) * 100;
-            progressBar.style.width = progress + '%';
-            progressText.textContent = `${completedCount}/${data.tasks.length} 完成`;
-            
-            const today = getTodayDateString();
-            if (completedCount === data.tasks.length) data.history[today].status = 'completed';
-            else if (completedCount > 0) data.history[today].status = 'partial';
-            data.history[today].completed = completedCount;
-            saveData(data);
-            
-            renderStats(data);
-            renderAchievements(data);
-            renderMotivationalQuote();
-            renderHistory(data);
-            
-            document.getElementById('lastUpdate').textContent = `最后更新：${new Date(data.lastUpdate).toLocaleString('zh-CN')}`;
         }
         
         function renderHistory(data) {
@@ -466,12 +502,13 @@
         }
         
         function checkIn(index) {
-            const data = loadData();
-            data.tasks[index].completed = true;
-            data.tasks[index].completedAt = new Date().toISOString();
-            saveData(data);
-            renderTasks();
-            alert('打卡成功！💪');
+            loadData(function(data) {
+                data.tasks[index].completed = true;
+                data.tasks[index].completedAt = new Date().toISOString();
+                saveData(data);
+                renderTasks();
+                alert('打卡成功！💪');
+            });
         }
         
         function showDelayOptions(index) {
@@ -480,31 +517,40 @@
         }
         
         function delay(index, minutes) {
-            const data = loadData();
-            data.tasks[index].delayed = true;
-            data.tasks[index].delayMinutes = minutes;
-            
-            const originalTime = new Date(`2026-04-15T${data.tasks[index].time}:00`);
-            originalTime.setMinutes(originalTime.getMinutes() + minutes);
-            data.tasks[index].newTime = originalTime.toTimeString().slice(0, 5);
-            
-            for (let i = index + 1; i < data.tasks.length; i++) {
-                if (!data.tasks[i].completed) {
-                    const taskTime = new Date(`2026-04-15T${data.tasks[i].time}:00`);
-                    taskTime.setMinutes(taskTime.getMinutes() + minutes);
-                    data.tasks[i].newTime = taskTime.toTimeString().slice(0, 5);
-                    data.tasks[i].delayed = true;
-                    data.tasks[i].delayMinutes = minutes;
+            loadData(function(data) {
+                data.tasks[index].delayed = true;
+                data.tasks[index].delayMinutes = minutes;
+                
+                const originalTime = new Date(`2026-04-15T${data.tasks[index].time}:00`);
+                originalTime.setMinutes(originalTime.getMinutes() + minutes);
+                data.tasks[index].newTime = originalTime.toTimeString().slice(0, 5);
+                
+                for (let i = index + 1; i < data.tasks.length; i++) {
+                    if (!data.tasks[i].completed) {
+                        const taskTime = new Date(`2026-04-15T${data.tasks[i].time}:00`);
+                        taskTime.setMinutes(taskTime.getMinutes() + minutes);
+                        data.tasks[i].newTime = taskTime.toTimeString().slice(0, 5);
+                        data.tasks[i].delayed = true;
+                        data.tasks[i].delayMinutes = minutes;
+                    }
                 }
-            }
-            
-            saveData(data);
-            renderTasks();
-            alert(`已延迟 ${minutes} 分钟，后续任务已自动顺延！`);
+                
+                saveData(data);
+                renderTasks();
+                alert(`已延迟 ${minutes} 分钟，后续任务已自动顺延！`);
+            });
         }
         
         showCurrentDate();
         renderTasks();
+        
+        // 实时监听数据变化
+        dataRef.on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && JSON.stringify(data) !== JSON.stringify(localData)) {
+                renderTasks();
+            }
+        });
     </script>
 </body>
 </html>
