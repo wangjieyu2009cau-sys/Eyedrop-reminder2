@@ -438,14 +438,14 @@
                             <button class="btn btn-check" onclick="checkIn(${index})" ${task.completed ? 'disabled' : ''}>
                                 ${task.completed ? '✓ 已滴' : '已滴'}
                             </button>
-                            <button class="btn btn-delay" onclick="showDelayOptions(${index})" ${task.completed || task.delayed ? 'disabled' : ''}>
-                                ${task.delayed ? '已延迟' : '延迟'}
+                            <button class="btn btn-delay" onclick="showDelayOptions(${index})" ${task.completed ? 'disabled' : ''}>
+                                延迟
                             </button>
                         </div>
                         <div class="delay-buttons" id="delayButtons${index}" style="display: none;">
                             <button class="delay-btn" onclick="delay(${index}, 30)">+30分钟</button>
                             <button class="delay-btn" onclick="delay(${index}, 60)">+1小时</button>
-                            <button class="delay-btn" onclick="delay(${index}, 120)">+2小时</button>
+                            <button class="delay-btn" onclick="delay(${index}, 90)">+1.5小时</button>
                         </div>
                     `;
                     taskList.appendChild(taskEl);
@@ -518,26 +518,35 @@
         
         function delay(index, minutes) {
             loadData(function(data) {
-                data.tasks[index].delayed = true;
-                data.tasks[index].delayMinutes = minutes;
+                // 如果第一次延迟，设置标志
+                if (!data.tasks[index].delayed) {
+                    data.tasks[index].delayed = true;
+                    data.tasks[index].delayMinutes = minutes;
+                } else {
+                    // 多次延迟，累加延迟时间
+                    data.tasks[index].delayMinutes += minutes;
+                }
                 
-                const originalTime = new Date(`2026-04-15T${data.tasks[index].time}:00`);
-                originalTime.setMinutes(originalTime.getMinutes() + minutes);
-                data.tasks[index].newTime = originalTime.toTimeString().slice(0, 5);
+                // 计算新的延迟时间（累加方式）
+                const baseTime = new Date(`2026-04-15T${data.tasks[index].time}:00`);
+                baseTime.setMinutes(baseTime.getMinutes() + data.tasks[index].delayMinutes);
+                data.tasks[index].newTime = baseTime.toTimeString().slice(0, 5);
                 
+                // 顺延后续所有未完成的任务
                 for (let i = index + 1; i < data.tasks.length; i++) {
                     if (!data.tasks[i].completed) {
-                        const taskTime = new Date(`2026-04-15T${data.tasks[i].time}:00`);
-                        taskTime.setMinutes(taskTime.getMinutes() + minutes);
-                        data.tasks[i].newTime = taskTime.toTimeString().slice(0, 5);
+                        const taskBaseTime = new Date(`2026-04-15T${data.tasks[i].time}:00`);
+                        // 后续任务也延迟相同的累计时间
+                        taskBaseTime.setMinutes(taskBaseTime.getMinutes() + data.tasks[index].delayMinutes);
+                        data.tasks[i].newTime = taskBaseTime.toTimeString().slice(0, 5);
                         data.tasks[i].delayed = true;
-                        data.tasks[i].delayMinutes = minutes;
+                        data.tasks[i].delayMinutes = data.tasks[index].delayMinutes;
                     }
                 }
                 
                 saveData(data);
                 renderTasks();
-                alert(`已延迟 ${minutes} 分钟，后续任务已自动顺延！`);
+                alert(`已延迟 ${minutes} 分钟，累计延迟 ${data.tasks[index].delayMinutes} 分钟，后续任务已自动顺延！`);
             });
         }
         
